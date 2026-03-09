@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>【問題】点字英語の応用２（縮約の7段階）</title>
+  <style>
+    /* ====== 画面デザイン（盲目の方でも押しやすい） ====== */
+    :root{
+      --btn-font-size: 22px;
+      --btn-padding-y: 18px;
+      --btn-padding-x: 16px;
+      --gap: 10px;
+      --radius: 14px;
+    }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", Meiryo, Arial, sans-serif;
+      background:#ffffff; /* 背景を白 */
+      color:#000000;      /* 文字を黒 */
+    }
+    .version{
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 10px 12px;
+      background: #ffffff;   /* ←ここを白に */
+      color: #000000;        /* ←文字色も黒に */
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .container{
+      padding: 12px;
+      display:flex;
+      flex-direction: column;
+      gap: var(--gap);
+    }
+    button{
+      width: 100%;               /* 横幅は常に最大 */
+      padding: var(--btn-padding-y) var(--btn-padding-x);
+      font-size: var(--btn-font-size);
+      border-radius: var(--radius);
+      border: 2px solid #2aa7ff; /* 枠線：水色系 */
+      background: #8fd3ff;       /* 背景：水色 */
+      color:#000000;             /* 文字：黒（見やすい） */
+      cursor:pointer;
+      text-align:left;           /* 音声利用でも見やすい */
+      line-height: 1.3;
+    }
+    button:focus{
+      outline: 4px solid #8ab4ff;
+      outline-offset: 2px;
+    }
+    button[data-selected="true"]{
+      background:#4dbbff; /* 選択中：少し濃い水色 */
+      border-color:#0077cc;
+    }
+    .hint{
+      padding: 8px 12px 4px;
+      opacity: 0.85;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ====== バージョン表示（左上） ====== -->
+  <div class="version" id="versionText"></div>
+
+  <div class="hint">
+    ※ ボタンを1回押す：確認（「起動しますか？」） / 同じボタンをもう1回押す：出題開始 / 別ボタン：選択解除
+  </div>
+
+  <!-- ====== ボタン配置（上から順に） ====== -->
+  <div class="container" id="buttons"></div>
+
+<script>
+/* =========================================================
+  パラメータ宣言部（後で修正しやすいように、先頭にまとめる）
+========================================================= */
+
+/** バージョン情報 */
+const APP_VERSION = "v1.0.4（作成：2026/3/9 19:30）";
+
+
+
+  
+/** 音声設定（後で音声速度を変えやすいように） */
+const SPEECH = {
+  ja: {
+    lang: "ja-JP",     // 日本語音声で読み上
+    rate: 0.7,         // ★速度：0.1～10（実用は 0.8～1.2 くらい）
+    pitch: 1.0,        // 高さ
+    volume: 1.0        // 音量
+  },
+  en: {
+    lang: "en-US",   // 必要なら en-GB などに変更OK
+    rate: 0.7,       // ★速度：0.1～10（実用は 0.8～1.2 くらい）
+    pitch: 1.0,      // 高さ
+    volume: 1.0      // 音量
+  }
+};
+
+/** 出題の待機時間（ミリ秒） */
+const DELAY = {
+  beforeAnswerMs: 3000,  // 質問→答えまで
+  afterAnswerMs: 1000    // 答え→次の質問まで
+};
+
+/**
+
+ *** 以下使わなくなったので、コメントアウトに変更済 ********。
+ 
+ * 英語を「日本語で発音」するための読み上げ方針
+ * - できるだけ「ja（かな）」を用意しておくと自然に読めます（後で編集しやすい）
+ * - ja が無い場合は「アルファベットを日本語読み（エー、ビー…）」で読みます
+const PRONOUNCE = {
+  // 1文字ごとの読み（必要なら調整してください）
+  letterMap: {
+    a:"エー", b:"ビー", c:"シー", d:"ディー", e:"イー", f:"エフ", g:"ジー", h:"エイチ", i:"アイ",
+    j:"ジェイ", k:"ケー", l:"エル", m:"エム", n:"エヌ", o:"オー", p:"ピー", q:"キュー", r:"アール",
+    s:"エス", t:"ティー", u:"ユー", v:"ブイ", w:"ダブリュー", x:"エックス", y:"ワイ", z:"ゼット"
+  }
+};
+ */
+
+/* =========================================================
+  問題データ（各ボタンに紐づく）
+  - dots は「マスの配列」。例： [[5],[1,3,4]] は2マス
+  - 1マスの場合は dots: [[1,2,3]] のように “二重配列” で統一
+  - ja は “答えの日本語読み” （無い場合はアルファベット読みで代用）
+========================================================= */
+
+const QUIZ_SETS = [
+  {
+    id: "btn1",
+    name: "１．段階１",
+    items: [
+
+      { word:"but",       dots:[[1,2]] },
+      { word:"can",       dots:[[1,4]] },
+      { word:"do",        dots:[[1,4,5]] },
+      { word:"every",     dots:[[1,5]] },
+      { word:"from",      dots:[[1,2,4]] },
+      { word:"go",        dots:[[1,2,4,5]] },
+      { word:"have",      dots:[[1,2,5]] },
+      { word:"just",      dots:[[2,4,5]] },
+      { word:"knowledge", dots:[[1,3]] },
+      { word:"like",      dots:[[1,2,3]] },
+      { word:"more",      dots:[[1,3,4]] },
+      { word:"not",       dots:[[1,3,4,5]] },
+      { word:"people",    dots:[[1,2,3,4]] },
+      { word:"quite",     dots:[[1,2,3,4,5]] },
+      { word:"rather",    dots:[[1,2,3,5]] },
+      { word:"so",        dots:[[2,3,4]] },
+      { word:"that",      dots:[[2,3,4,5]] },
+      { word:"us",        dots:[[1,3,6]] },
+      { word:"very",      dots:[[1,2,3,6]] },
+      { word:"will",      dots:[[2,4,5,6]] },
+      { word:"it",        dots:[[1,3,4,6]] },
+      { word:"you",       dots:[[1,3,4,5,6]] },
+      { word:"as",        dots:[[1,3,5,6]] },
+      { word:"and",       dots:[[1,2,3,4,6]] },
+      { word:"for",       dots:[[1,2,3,4,5,6]] },
+      { word:"of",        dots:[[1,2,3,5,6]] },
+      { word:"the",       dots:[[2,3,4,6]] },
+      { word:"with",      dots:[[2,3,4,5,6]] },
+      { word:"child",     dots:[[1,6]] },
+      { word:"shall",     dots:[[1,4,6]] },
+      { word:"this",      dots:[[1,4,5,6]] },
+      { word:"which",     dots:[[1,5,6]] },
+      { word:"out",       dots:[[1,2,5,6]] },
+      { word:"still",     dots:[[3,4]] }
+
+    /* =========================================================
+      { word:"and",   ja:"アンド", dots:[[1,2,3,4,6]] },
+      { word:"for",   ja:"フォー", dots:[[1,2,3,4,5,6]] },
+      { word:"of",    ja:"オブ",   dots:[[1,2,3,5,6]] },
+      { word:"the",   ja:"ザ",     dots:[[2,3,4,6]] },
+      { word:"with",  ja:"ウィズ", dots:[[2,3,4,5,6]] },
+      { word:"child", ja:"チャイルド", dots:[[1,6]] },
+      { word:"shall", ja:"シャル", dots:[[1,4,6]] },
+      { word:"this",  ja:"ディス", dots:[[1,4,5,6]] },
+      { word:"which", ja:"ウィッチ", dots:[[1,5,6]] },
+      { word:"out",   ja:"アウト", dots:[[1,2,5,6]] },
+      { word:"still", ja:"スティル", dots:[[3,4]] }
+    ========================================================= */
+    ]
+  },
+  {
+    id: "btn2",
+    name: "段階２",
+    items: [
+      { word:"day",        dots:[[5],[1,3,4]] },
+      { word:"ever",       dots:[[5],[1,5]] },
+      { word:"father",     dots:[[5],[1,2,4]] },
+      { word:"here",       dots:[[5],[1,2,5]] },
+      { word:"know",       dots:[[5],[1,3]] },
+      { word:"lord",       dots:[[5],[1,2,3]] },
+      { word:"mother",     dots:[[5],[1,3,4]] },
+      { word:"name",       dots:[[5],[1,3,4,5]] },
+      { word:"one",        dots:[[5],[1,3,5]] },
+      { word:"part",       dots:[[5],[1,2,3,4]] },
+      { word:"question",   dots:[[5],[1,2,3,4,5]] },
+      { word:"right",      dots:[[5],[1,2,3,5]] },
+      { word:"some",       dots:[[5],[2,3,4]] },
+      { word:"time",       dots:[[5],[2,3,4,5]] },
+      { word:"under",      dots:[[5],[1,3,6]] },
+      { word:"work",       dots:[[5],[2,4,5,6]] },
+      { word:"young",      dots:[[5],[1,3,4,5,6]] },
+      { word:"there",      dots:[[5],[2,3,4,6]] },
+      { word:"character",  dots:[[5],[1,6]] },
+      { word:"through",    dots:[[5],[1,4,5,6]] },
+      { word:"where",      dots:[[5],[1,5,6]] },
+      { word:"ought",      dots:[[5],[1,2,5,6]] },
+      { word:"upon",       dots:[[4,5],[1,3,6]] },
+      { word:"word",       dots:[[4,5],[2,4,5,6]] },
+      { word:"these",      dots:[[4,5],[2,3,4,6]] },
+      { word:"those",      dots:[[4,5],[1,4,5,6]] },
+      { word:"whose",      dots:[[4,5],[1,5,6]] }.
+      { word:"cannot",     dots:[[4,5,6],[1,4]] },
+      { word:"had",        dots:[[4,5,6],[1,2,5]] },
+      { word:"many",       dots:[[4,5,6],[1,3,4]] },
+      { word:"spirit",     dots:[[4,5,6],[2,3,4]] },
+      { word:"world",      dots:[[4,5,6],[2,4,5,6]] },
+      { word:"their",      dots:[[4,5,6],[2,3,4,6]] }
+
+    /* =========================================================
+      { word:"day",       ja:"デイ",       dots:[[5],[1,3,4]] },
+      { word:"ever",      ja:"エヴァー",    dots:[[5],[1,5]] },
+      { word:"father",    ja:"ファーザー",  dots:[[5],[1,2,4]] },
+      { word:"here",      ja:"ヒア",        dots:[[5],[1,2,5]] },
+      { word:"know",      ja:"ノウ",        dots:[[5],[1,3]] },
+      { word:"lord",      ja:"ロード",      dots:[[5],[1,2,3]] },
+      { word:"mother",    ja:"マザー",      dots:[[5],[1,3,4]] },
+      { word:"name",      ja:"ネーム",      dots:[[5],[1,3,4,5]] },
+      { word:"one",       ja:"ワン",        dots:[[5],[1,3,5]] },
+      { word:"part",      ja:"パート",      dots:[[5],[1,2,3,4]] },
+      { word:"question",  ja:"クエスチョン",dots:[[5],[1,2,3,4,5]] },
+      { word:"right",     ja:"ライト",      dots:[[5],[1,2,3,5]] },
+      { word:"some",      ja:"サム",        dots:[[5],[2,3,4]] },
+      { word:"time",      ja:"タイム",      dots:[[5],[2,3,4,5]] },
+      { word:"under",     ja:"アンダー",    dots:[[5],[1,3,6]] },
+      { word:"work",      ja:"ワーク",      dots:[[5],[2,4,5,6]] },
+      { word:"young",     ja:"ヤング",      dots:[[5],[1,3,4,5,6]] },
+      { word:"there",     ja:"ゼア",        dots:[[5],[2,3,4,6]] },
+      { word:"character", ja:"キャラクター",dots:[[5],[1,6]] },
+      { word:"through",   ja:"スルー",      dots:[[5],[1,4,5,6]] },
+      { word:"where",     ja:"ウェア",      dots:[[5],[1,5,6]] },
+      { word:"ought",     ja:"オート",      dots:[[5],[1,2,5,6]] },
+      { word:"upon",  ja:"アポン",  dots:[[4,5],[1,3,6]] },
+      { word:"word",  ja:"ワード",  dots:[[4,5],[2,4,5,6]] },
+      { word:"these", ja:"ティーズ",  dots:[[4,5],[2,3,4,6]] },
+      { word:"those", ja:"ゾーズ",  dots:[[4,5],[1,4,5,6]] },
+      { word:"whose", ja:"フーズ",  dots:[[4,5],[1,5,6]] },
+      { word:"cannot", ja:"キャンノット", dots:[[4,5,6],[1,4]] },
+      { word:"had",    ja:"ハド",       dots:[[4,5,6],[1,2,5]] },
+      { word:"many",   ja:"メニー",     dots:[[4,5,6],[1,3,4]] },
+      { word:"spirit", ja:"スピリット", dots:[[4,5,6],[2,3,4]] },
+      { word:"world",  ja:"ワールド",   dots:[[4,5,6],[2,4,5,6]] },
+      { word:"their",  ja:"ゼア",       dots:[[4,5,6],[2,3,4,6]] }
+    ========================================================= */
+    ]
+  },
+  {
+    id: "btn3",
+    name: "段階３",
+    items: [
+      // ここは「英語の音」ではなく、文字として日本語で理解しやすい読みを入れてあります
+      { word:"ch", ja:"シー エイチ", dots:[[1,6]] },
+      { word:"gh", ja:"ジー エイチ", dots:[[1,2,6]] },
+      { word:"sh", ja:"エス エイチ", dots:[[1,4,6]] },
+      { word:"th", ja:"ティー エイチ", dots:[[1,4,5,6]] },
+      { word:"wh", ja:"ダブリュー エイチ", dots:[[1,5,6]] },
+      { word:"ed", ja:"イー ディー", dots:[[1,2,4,6]] },
+      { word:"er", ja:"イー アール", dots:[[1,2,4,5,6]] },
+      { word:"ou", ja:"オー ユー", dots:[[1,2,5,6]] },
+      { word:"ow", ja:"オー ダブリュー", dots:[[2,4,6]] },
+      { word:"st", ja:"エス ティー", dots:[[3,4]] },
+      { word:"ar", ja:"エー アール", dots:[[3,4,5]] },
+      { word:"ing",ja:"アイ エヌ ジー", dots:[[3,4,6]] },
+      { word:"en",  ja:"イー エヌ",  dots:[[2,6]] },
+      { word:"in",  ja:"アイ エヌ",  dots:[[3,5]] },
+      { word:"ound", ja:"オー ユー エヌ ディー", dots:[[4,6],[1,4,5]] },
+      { word:"ance", ja:"エー エヌ シー イー",   dots:[[4,6],[1,5]] },
+      { word:"sion", ja:"エス アイ オー エヌ",   dots:[[4,6],[1,3,4,5]] },
+      { word:"less", ja:"エル イー エス エス",   dots:[[4,6],[2,3,4]] },
+      { word:"ount", ja:"オー ユー エヌ ティー", dots:[[4,6],[2,3,4,5]] },
+      { word:"ence", ja:"イー エヌ シー イー",   dots:[[5,6],[1,5]] },
+      { word:"ong",  ja:"オー エヌ ジー",         dots:[[5,6],[1,2,4,5]] },
+      { word:"ful",  ja:"エフ ユー エル",         dots:[[5,6],[1,2,3]] },
+      { word:"tion", ja:"ティー アイ オー エヌ",  dots:[[5,6],[1,3,4,5]] },
+      { word:"ness", ja:"エヌ イー エス エス",   dots:[[5,6],[2,3,4]] },
+      { word:"ment", ja:"エム イー エヌ ティー",  dots:[[5,6],[2,3,4,5]] },
+      { word:"ity",  ja:"アイ ティー ワイ",       dots:[[5,6],[1,3,4,5,6]] }
+    ]
+  },
+  {
+    id: "btn4",
+    name: "段階４",
+    items: [
+      { word:"about",     dots:[[1],[1,2]] },
+      { word:"according", dots:[[1],[1,4]] },
+      { word:"after",     dots:[[1],[1,2,4]] },
+      { word:"again",     dots:[[1],[1,2,4,5]] },
+      { word:"also",      dots:[[1],[1,2,3]] },
+      { word:"because",   dots:[[2,3],[1,4]] },
+      { word:"before",    dots:[[2,3],[1,2,4]] },
+      { word:"behind",    dots:[[2,3],[1,2,5]] },
+      { word:"below",     dots:[[2,3],[1,2,3]] },
+      { word:"beneath",   dots:[[2,3],[1,3,4,5]] },
+      { word:"beside",    dots:[[2,3],[2,3,4]] },
+      { word:"between",   dots:[[2,3],[2,3,4,5]] },
+      { word:"beyond",    dots:[[2,3],[1,3,4,5,6]] },
+      { word:"blind",     dots:[[1,2],[1,2,3]] },
+      { word:"either",    dots:[[1,5],[2,4]] },
+      { word:"friend",    dots:[[1,2,4],[1,2,3,5]] },
+      { word:"children",  dots:[[1,6],[1,3,4,5]] },
+      { word:"could",     dots:[[1,4],[1,4,5]] },
+      { word:"first",     dots:[[1,2,4],[3,4]] },
+      { word:"good",      dots:[[1,2,4,5],[1,4,5]] },
+      { word:"him",       dots:[[1,2,5],[1,3,4]] },
+      { word:"its",       dots:[[1,3,4,6],[2,3,4]] },
+      { word:"letter",    dots:[[1,2,3],[1,2,3,5]] },
+      { word:"little",    dots:[[1,2,3],[1,2,3]] },
+      { word:"much",      dots:[[1,3,4],[1,6]] },
+      { word:"must",      dots:[[1,3,4],[3,4]] },
+      { word:"paid",      dots:[[1,2,3,4],[1,4,5]] },
+      { word:"quick",     dots:[[1,2,3,4,5],[1,3]] },
+      { word:"said",      dots:[[2,3,4],[1,4,5]] },
+      { word:"should",    dots:[[1,4,6],[1,4,5]] },
+      { word:"such",      dots:[[2,3,4],[1,6]] },
+      { word:"today",     dots:[[2,3,4,5],[1,4,5]] },
+      { word:"tomorrow",  dots:[[2,3,4,5],[1,3,4]] },
+      { word:"tonight",   dots:[[2,3,4,5],[1,3,4,5]] },
+      { word:"would",     dots:[[2,4,5,6],[1,4,5]] },
+      { word:"your",      dots:[[1,3,4,5,6],[1,2,3,5]] },
+      { word:"above",     dots:[[1],[1,2],[1,2,3,6]] },
+      { word:"afternoon", dots:[[1],[1,2,4],[1,3,4,5]] },
+      { word:"afterward", dots:[[1],[1,2,4],[2,4,5,6]] },
+      { word:"against",   dots:[[1],[1,2,4,5],[3,4]] },
+      { word:"braille",   dots:[[1,2],[1,2,3,5],[1,2,3]] },
+      { word:"great",     dots:[[1,2,4,5],[1,2,3,5],[2,3,4,5]] },
+      { word:"together",  dots:[[2,3,4,5],[1,2,4,5],[1,2,3,5]] }
+
+    /* =========================================================
+      { word:"about",     ja:"アバウト",     dots:[[1],[1,2]] },
+      { word:"according", ja:"アコーディング",dots:[[1],[1,4]] },
+      { word:"after",     ja:"アフター",     dots:[[1],[1,2,4]] },
+      { word:"again",     ja:"アゲイン",     dots:[[1],[1,2,4,5]] },
+      { word:"also",      ja:"オールソー",   dots:[[1],[1,2,3]] },
+      { word:"because",   ja:"ビコーズ",     dots:[[2,3],[1,4]] },
+      { word:"before",    ja:"ビフォー",     dots:[[2,3],[1,2,4]] },
+      { word:"behind",    ja:"ビハインド",   dots:[[2,3],[1,2,5]] },
+      { word:"below",     ja:"ビロー",       dots:[[2,3],[1,2,3]] },
+      { word:"beneath",   ja:"ビニース",     dots:[[2,3],[1,3,4,5]] },
+      { word:"beside",    ja:"ビサイド",     dots:[[2,3],[2,3,4]] },
+      { word:"between",   ja:"ビットウィーン", dots:[[2,3],[2,3,4,5]] },
+      { word:"beyond",    ja:"ビヨンド",     dots:[[2,3],[1,3,4,5,6]] },
+      { word:"blind",     ja:"ブラインド",   dots:[[1,2],[1,2,3]] },
+      { word:"either",    ja:"イーザー",     dots:[[1,5],[2,4]] },
+      { word:"friend",    ja:"フレンド",     dots:[[1,2,4],[1,2,3,5]] },
+      { word:"children",  ja:"チルドレン",  dots:[[1,6],[1,3,4,5]] },
+      { word:"could",     ja:"クッド",      dots:[[1,4],[1,4,5]] },
+      { word:"first",     ja:"ファースト",  dots:[[1,2,4],[3,4]] },
+      { word:"good",      ja:"グッド",      dots:[[1,2,4,5],[1,4,5]] },
+      { word:"him",       ja:"ヒム",        dots:[[1,2,5],[1,3,4]] },
+      { word:"its",       ja:"イッツ",      dots:[[1,3,4,6],[2,3,4]] },
+      { word:"letter",    ja:"レター",      dots:[[1,2,3],[1,2,3,5]] },
+      { word:"little",    ja:"リトル",      dots:[[1,2,3],[1,2,3]] },
+      { word:"much",      ja:"マッチ",      dots:[[1,3,4],[1,6]] },
+      { word:"must",      ja:"マスト",      dots:[[1,3,4],[3,4]] },
+      { word:"paid",      ja:"ペイド",      dots:[[1,2,3,4],[1,4,5]] },
+      { word:"quick",     ja:"クイック",    dots:[[1,2,3,4,5],[1,3]] },
+      { word:"said",      ja:"セッド",      dots:[[2,3,4],[1,4,5]] },
+      { word:"should",    ja:"シュッド",    dots:[[1,4,6],[1,4,5]] },
+      { word:"such",      ja:"サッチ",      dots:[[2,3,4],[1,6]] },
+      { word:"today",     ja:"トゥデイ",    dots:[[2,3,4,5],[1,4,5]] },
+      { word:"tomorrow",  ja:"トゥモロー",  dots:[[2,3,4,5],[1,3,4]] },
+      { word:"tonight",   ja:"トゥナイト",  dots:[[2,3,4,5],[1,3,4,5]] },
+      { word:"would",     ja:"ウッド",      dots:[[2,4,5,6],[1,4,5]] },
+      { word:"your",      ja:"ユア",        dots:[[1,3,4,5,6],[1,2,3,5]] },
+      { word:"above",     ja:"アバーブ",      dots:[[1],[1,2],[1,2,3,6]] },
+      { word:"afternoon", ja:"アフタヌーン",dots:[[1],[1,2,4],[1,3,4,5]] },
+      { word:"afterward", ja:"アフターワード",dots:[[1],[1,2,4],[2,4,5,6]] },
+      { word:"against",   ja:"アゲインスト",dots:[[1],[1,2,4,5],[3,4]] },
+      { word:"braille",   ja:"ブレイル",    dots:[[1,2],[1,2,3,5],[1,2,3]] },
+      { word:"great",     ja:"グレイト",    dots:[[1,2,4,5],[1,2,3,5],[2,3,4,5]] },
+      { word:"together",  ja:"トゥゲザー",  dots:[[2,3,4,5],[1,2,4,5],[1,2,3,5]] }
+    ========================================================= */
+    ]
+  },
+  {
+    id: "btn5",
+    name: "段階５",
+    items: [
+      { word:"across",     dots:[[1],[1,4],[1,2,3,5]] },
+      { word:"almost",     dots:[[1],[1,2,3],[1,3,4]] },
+      { word:"already",    dots:[[1],[1,2,3],[1,2,3,5]] },
+      { word:"always",     dots:[[1],[1,2,3],[2,4,5,6]] },
+      { word:"altogether", dots:[[1],[1,2,3],[2,3,4,5]] },
+      { word:"although",   dots:[[1],[1,2,3],[1,4,5,6]] },
+      { word:"immediate",  dots:[[2,4],[1,3,4],[1,3,4]] },
+      { word:"necessary",  dots:[[1,3,4,5],[1,5],[1,4]] },
+      { word:"neither",    dots:[[1,3,4,5],[1,5],[2,4]] },
+      { word:"perhaps",    dots:[[1,2,3,4],[1,2,4,5,6],[1,2,5]] },
+      { word:"myself",     dots:[[1,3,4],[1,3,4,5,6],[1,2,4]] },
+      { word:"yourself",   dots:[[1,3,4,5,6],[1,2,3,5],[1,2,4]] },
+      { word:"himself",    dots:[[1,2,5],[1,3,4],[1,2,4]] },
+      { word:"herself",    dots:[[1,2,5],[1,2,4,5,6],[1,2,4]] },
+      { word:"itself",     dots:[[1,3,4,6],[1,2,4]] },
+      { word:"oneself",    dots:[[5],[1,3,5],[1,2,4]] },
+      { word:"thyself",    dots:[[1,4,5,6],[1,3,4,5,6],[1,2,4]] },
+      { word:"ourselves",  dots:[[1,2,5,6],[1,2,3,5],[1,2,3,6],[2,3,4]] },
+      { word:"yourselves", dots:[[1,3,4,5,6],[1,2,3,5],[1,2,3,6],[2,3,4]] },
+      { word:"themselves", dots:[[2,3,4,6],[1,3,4],[1,2,3,6],[2,3,4]] }
+      { word:"conceive",   dots:[[2,5],[1,4],[1,2,3,6]] },
+      { word:"conceiving", dots:[[2,5],[1,4],[1,2,3,6],[1,2,4,5]] },
+      { word:"deceive",    dots:[[1,4,5],[1,4],[1,2,3,6]] },
+      { word:"deceiving",  dots:[[1,4,5],[1,4],[1,2,3,6],[1,2,4,5]] },
+      { word:"declare",    dots:[[1,4,5],[1,4],[1,2,3]] },
+      { word:"declaring",  dots:[[1,4,5],[1,4],[1,2,3],[1,2,4,5]] },
+      { word:"perceive",   dots:[[1,2,3,4],[1,2,4,5,6],[1,4],[1,2,3,6]] },
+      { word:"perceiving", dots:[[1,2,3,4],[1,2,4,5,6],[1,4],[1,2,3,6],[1,2,4,5]] },
+      { word:"receive",    dots:[[1,2,3,5],[1,4],[1,2,3,6]] },
+      { word:"receiving",  dots:[[1,2,3,5],[1,4],[1,2,3,6],[1,2,4,5]] },
+      { word:"rejoice",    dots:[[1,2,3,5],[2,4,5],[1,4]] },
+      { word:"rejoicing",  dots:[[1,2,3,5],[2,4,5],[1,4],[1,2,4,5]] }
+
+    /* =========================================================
+      { word:"across",     ja:"アクロス",     dots:[[1],[1,4],[1,2,3,5]] },
+      { word:"almost",     ja:"オールモスト", dots:[[1],[1,2,3],[1,3,4]] },
+      { word:"already",    ja:"オールレディ", dots:[[1],[1,2,3],[1,2,3,5]] },
+      { word:"always",     ja:"オールウェイズ",dots:[[1],[1,2,3],[2,4,5,6]] },
+      { word:"altogether", ja:"オールトゥゲザー",dots:[[1],[1,2,3],[2,3,4,5]] },
+      { word:"although",   ja:"オールゾウ",   dots:[[1],[1,2,3],[1,4,5,6]] },
+      { word:"immediate",  ja:"イミディエイト",dots:[[2,4],[1,3,4],[1,3,4]] },
+      { word:"necessary",  ja:"ネセサリー",   dots:[[1,3,4,5],[1,5],[1,4]] },
+      { word:"neither",    ja:"ナイザー",     dots:[[1,3,4,5],[1,5],[2,4]] },
+      { word:"perhaps",    ja:"パーハップス",     dots:[[1,2,3,4],[1,2,4,5,6],[1,2,5]] },
+      { word:"myself",     ja:"マイセルフ",     dots:[[1,3,4],[1,3,4,5,6],[1,2,4]] },
+      { word:"yourself",   ja:"ユアセルフ",     dots:[[1,3,4,5,6],[1,2,3,5],[1,2,4]] },
+      { word:"himself",    ja:"ヒムセルフ",     dots:[[1,2,5],[1,3,4],[1,2,4]] },
+      { word:"herself",    ja:"ハーセルフ",     dots:[[1,2,5],[1,2,4,5,6],[1,2,4]] },
+      { word:"itself",     ja:"イットセルフ",   dots:[[1,3,4,6],[1,2,4]] },
+      { word:"oneself",    ja:"ワンセルフ",     dots:[[5],[1,3,5],[1,2,4]] },
+      { word:"thyself",    ja:"ザイセルフ",     dots:[[1,4,5,6],[1,3,4,5,6],[1,2,4]] },
+      { word:"ourselves",  ja:"アワセルヴズ",   dots:[[1,2,5,6],[1,2,3,5],[1,2,3,6],[2,3,4]] },
+      { word:"yourselves", ja:"ユアセルヴズ",   dots:[[1,3,4,5,6],[1,2,3,5],[1,2,3,6],[2,3,4]] },
+      { word:"themselves", ja:"ゼムセルヴズ",   dots:[[2,3,4,6],[1,3,4],[1,2,3,6],[2,3,4]] }
+    ========================================================= */
+    ]
+  },
+  {
+    id: "btn6",
+    name: "段階６",
+    items: [
+      { word:"be",     dots:[[2,3]] },
+      { word:"were",   dots:[[2,3,5,6]] },
+      { word:"his",    dots:[[2,3,6]] },
+      { word:"was",    dots:[[3,5,6]] },
+      { word:"enough", dots:[[2,6]] },
+      { word:"in",     dots:[[3,5]] }
+    ]
+  },
+  {
+    id: "btn7",
+    name: "段階７",
+    items: [
+      { word:"be",  ja:"ビー イー",  dots:[[2,3]] },
+      { word:"con", ja:"シー オー エヌ", dots:[[2,5]] },
+      { word:"dis", ja:"ディー アイ エス", dots:[[2,5,6]] },
+      { word:"ea",  ja:"イー エー",  dots:[[2]] },
+      { word:"bb",  ja:"ビー ビー",  dots:[[2,3]] },
+      { word:"cc",  ja:"シー シー",  dots:[[2,5]] },
+      { word:"ff",  ja:"エフ エフ",  dots:[[2,3,5]] },
+      { word:"gg",  ja:"ジー ジー",  dots:[[2,3,5,6]] }
+    ]
+  }
+];
+
+/* =========================================================
+  ロジック（ボタン挙動・音声出力・出題）
+========================================================= */
+
+let selectedSetId = null;  // 現在「選択」状態のボタンID
+let isSpeaking = false;    // 読み上げ中の簡易フラグ（過剰な連打対策）
+let currentRunToken = 0;   // 出題中断・切替のためのトークン
+let isRunningQuiz = false; // ★出題中フラグ（停止ボタン判定用）
+
+// 画面初期化
+document.getElementById("versionText").textContent = APP_VERSION;
+renderButtons();
+
+// Safari でも動くように、ユーザー操作（ボタン押下）後に voice を選ぶのが安定
+function getJapaneseVoice() {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  // できるだけ ja-JP を優先
+  return voices.find(v => (v.lang || "").toLowerCase().startsWith("ja")) || null;
+}
+
+function getEnglishVoice() {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  return voices.find(v => (v.lang || "").toLowerCase().startsWith("en")) || null;
+}
+
+/**
+ * テキスト読み上げ（Promise化）
+ * - iOS Safari/Chrome 共通で speechSynthesis を使用
+ * - 連続読み上げ用に await で待てるようにしています
+ */
+function speak(text, opts = {}) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+
+    // 前の発話が残っている場合は停止
+    window.speechSynthesis.cancel();
+
+    const uttr = new SpeechSynthesisUtterance(text);
+
+    // ★言語を選べるように（デフォルトは日本語）
+    const lang = opts.lang || SPEECH.ja.lang;
+    uttr.lang = lang;
+
+    // ★速度なども言語ごとに切替
+    const conf = (lang.toLowerCase().startsWith("en")) ? SPEECH.en : SPEECH.ja;
+    uttr.rate = conf.rate;
+    uttr.pitch = conf.pitch;
+    uttr.volume = conf.volume;
+
+    // ★voice も言語で切替
+    const voice = (lang.toLowerCase().startsWith("en")) ? getEnglishVoice() : getJapaneseVoice();
+    if (voice) uttr.voice = voice;
+
+    uttr.onend = () => resolve();
+    uttr.onerror = () => resolve();
+
+    window.speechSynthesis.speak(uttr);
+  });
+}
+
+/** 待機 */
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * 答え（word）を日本語で読み上げ用に整形
+ * - item.ja があればそれを使う
+ * - 無ければアルファベットを1文字ずつ日本語読み（エー、ビー…）にする
+ */
+function toJapaneseReading(item) {
+  const ja = (item?.ja || "").trim();
+  return ja || null; // ★無ければ null
+}
+/**
+ * dots を「ひとますめが 1,2,3 の点…」形式に変換
+ * - dots は [[...],[...],...] の配列（マスごと）
+ */
+function dotsToQuestionText(dots) {
+  const cellCount = dots.length;
+
+  // 1～10程度のマス数なら日本語の序数を用意
+  const ord = ["","ひと","ふた","み","よ","いつ","む","なな","や","ここの","とお"];
+  const cellPrefix = (n) => (ord[n] ? ord[n] + "ますめ" : (n + "ますめ"));
+
+  const cellCountText = (cellCount === 1) ? "ひとます" : (cellCount + "マス");
+
+  const cells = dots.map((cellDots, idx) => {
+    // 点番号を「いち,に,さん…」に
+    const jpNum = (n) => {
+      const map = {1:"いち",2:"に",3:"さん",4:"よん",5:"ご",6:"ろく"};
+      return map[n] || String(n);
+    };
+    const dotsText = (cellDots || []).map(jpNum).join("、");
+    if (cellCount === 1) {
+      return `ひとますめが${dotsText}の点`;
+    }
+    return `${cellPrefix(idx+1)}が${dotsText}の点`;
+  });
+
+  // 例：「にマスの点字で、ひとますめが…、ふたますめが…はなんですか？」
+  return `${cellCountText}の点字で、${cells.join("、")}はなんですか？`;
+}
+
+/**
+ * 配列をシャッフル（重複なしのランダム順）
+ */
+function shuffledCopy(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** ボタン描画 */
+function renderButtons() {
+  const root = document.getElementById("buttons");
+  root.innerHTML = "";
+
+  QUIZ_SETS.forEach(set => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = set.id;
+    btn.textContent = set.name;
+    btn.setAttribute("aria-label", set.name);
+    btn.dataset.selected = "false";
+
+    btn.addEventListener("click", () => onButtonClick(set.id));
+    root.appendChild(btn);
+  });
+}
+
+/**
+ * ボタンクリック挙動（要件通り）
+ * - 1回目：選択状態にして「<ボタン名> を、起動しますか？」
+ * - 同じボタンをもう1回：問題読み上げ開始
+ * - 別ボタン： 「選択を解除しました」＋選択解除
+ */
+async function onButtonClick(setId) {
+  // ★読み上げ中でも「出題中の同一ボタン停止」は受け付ける
+  if (isSpeaking && !(isRunningQuiz && selectedSetId === setId)) return;
+
+  const set = QUIZ_SETS.find(s => s.id === setId);
+  if (!set) return;
+
+  // 別ボタンが押された場合：選択解除
+  if (selectedSetId && selectedSetId !== setId) {
+    currentRunToken++;              // 出題中なら中断
+    isRunningQuiz = false;          // ★出題中フラグ解除
+    selectedSetId = null;
+    updateSelectedUI(null);
+    isSpeaking = true;
+    await speak("選択を解除しました");
+    isSpeaking = false;
+    return;
+  }
+
+  // 未選択 → 選択状態へ（確認メッセージ）
+  if (!selectedSetId) {
+    selectedSetId = setId;
+    updateSelectedUI(setId);
+    isSpeaking = true;
+    await speak(`${set.name} を、起動しますか？`);
+    isSpeaking = false;
+    return;
+  }
+
+  // 同じボタンが2回目 → 出題開始
+  // 同じボタン
+  if (selectedSetId === setId) {
+
+    // ★出題中なら「停止」
+    if (isRunningQuiz) {
+      currentRunToken++; // runQuiz の中断チェックを効かせる
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel(); // いま喋っている音声も止める
+      }
+      isSpeaking = true;
+      await speak("問題を停止します。");
+      isSpeaking = false;
+
+      isRunningQuiz = false; // 出題中フラグ解除
+      return;
+    }
+
+    // ★出題中でなければ「出題開始」
+    currentRunToken++;
+    const token = currentRunToken;
+
+    isRunningQuiz = true;
+    isSpeaking = true;
+    await runQuiz(set, token);
+    isSpeaking = false;
+    // runQuiz が最後まで終わったら（中断含む）フラグを戻す
+    isRunningQuiz = false;
+  }
+
+}
+
+/** 選択UI更新 */
+function updateSelectedUI(selectedId) {
+  QUIZ_SETS.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (!el) return;
+    el.dataset.selected = (s.id === selectedId) ? "true" : "false";
+  });
+}
+
+/**
+ * 出題ロジック（要件通り）
+ * 1) 「問題数はN問です。問題を開始します。」
+ * 2) 各問題：
+ *    - 質問読み上げ
+ *    - 3秒待機
+ *    - 「答えは、"word"です」
+ *    - 1秒待機
+ * ※ 毎回ランダム順・重複なし
+ */
+async function runQuiz(set, token) {
+  const questions = shuffledCopy(set.items);
+  const total = questions.length;
+
+  // 開始アナウンス
+  await speak(`問題すうは${total}問です。問題を開始します。`);
+  if (token !== currentRunToken) return; // 中断チェック
+
+  for (let i = 0; i < total; i++) {
+    const q = questions[i];
+    const qText = dotsToQuestionText(q.dots);
+
+    // 質問
+    await speak(qText);
+    if (token !== currentRunToken) return;
+
+    // 3秒待機
+    await sleep(DELAY.beforeAnswerMs);
+    if (token !== currentRunToken) return;
+
+
+    const ja = toJapaneseReading(q);
+    if (ja) {
+      // 日本語読みが用意されているものは、日本語で自然に
+      await speak(`答えは、${ja}、です`, { lang: "ja-JP" });
+    } else {
+      // ★ja が無い場合：
+    // 1)「答えは、」日本語
+      await speak("答えは、", { lang: "ja-JP" });
+
+      // 2) 単語だけ英語（自然な英語読み）
+      await speak(String(q.word || ""), { lang: "en-US" });
+
+      // 3)「です」日本語
+      await speak("、です。", { lang: "ja-JP" });
+    }
+
+    if (token !== currentRunToken) return;
+
+    // 1秒待機
+    await sleep(DELAY.afterAnswerMs);
+    if (token !== currentRunToken) return;
+  }
+  // 終了アナウンス
+  await speak(`${total}問の問題を解き終わりましたので終了します。`);
+
+}
+
+/* =========================================================
+  iOS Safari 対策メモ：
+  - 音声の voices は非同期で読み込まれることがあるため、
+    初回は getVoices が空のことがあります。
+  - ここでは「ボタン押下（ユーザー操作）」で speak するので実用上OKです。
+========================================================= */
+window.speechSynthesis?.getVoices?.();
+window.speechSynthesis?.addEventListener?.("voiceschanged", () => {
+  // 必要ならここで音声一覧の再取得などを行えます（今回は未使用）
+});
+</script>
+</body>
+</html>
