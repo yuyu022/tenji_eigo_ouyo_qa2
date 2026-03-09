@@ -81,7 +81,7 @@
 ========================================================= */
 
 /** バージョン情報 */
-const APP_VERSION = "v1.0.4（作成：2026/3/9 19:30）";
+const APP_VERSION = "v1.0.2（作成：2026/3/9 19:55）";
 
 
 
@@ -357,6 +357,21 @@ const QUIZ_SETS = [
       { word:"ff",  ja:"エフ エフ",  dots:[[2,3,5]] },
       { word:"gg",  ja:"ジー ジー",  dots:[[2,3,5,6]] }
     ]
+  },
+  {
+    id: "btn8",
+    name: "ランダムに10問を出題",
+    questionLimit: 10,
+    items: [
+      { word:"be",  ja:"ビー イー",  dots:[[2,3]] },
+      { word:"con", ja:"シー オー エヌ", dots:[[2,5]] },
+      { word:"dis", ja:"ディー アイ エス", dots:[[2,5,6]] },
+      { word:"ea",  ja:"イー エー",  dots:[[2]] },
+      { word:"bb",  ja:"ビー ビー",  dots:[[2,3]] },
+      { word:"cc",  ja:"シー シー",  dots:[[2,5]] },
+      { word:"ff",  ja:"エフ エフ",  dots:[[2,3,5]] },
+      { word:"gg",  ja:"ジー ジー",  dots:[[2,3,5,6]] }
+    ]
   }
 ];
 
@@ -584,8 +599,15 @@ function updateSelectedUI(selectedId) {
  * ※ 毎回ランダム順・重複なし
  */
 async function runQuiz(set, token) {
-  const questions = shuffledCopy(set.items);
+  const shuffled = shuffledCopy(set.items);
+
+  // questionLimit があればその数まで、無ければ全問
+  const limit = set.questionLimit || shuffled.length;
+
+  // 問題数が元の件数より多くならないようにする
+  const questions = shuffled.slice(0, Math.min(limit, shuffled.length));
   const total = questions.length;
+  
 
   // 開始アナウンス
   await speak(`問題すうは${total}問です。問題を開始します。`);
